@@ -1,6 +1,6 @@
 # Pingo.to AI skills
 
-AI skills for <a href="https://pingo.to" target="_blank">pingo.to</a>.
+AI skills for <a href="https://pingo.to" target="_blank">https://pingo.to</a>.
 
 ## Install
 
