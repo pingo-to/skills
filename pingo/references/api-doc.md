@@ -60,25 +60,37 @@ synchronously — the `200` response carries a usable `gateway_url`.
 
 ### Allowed file types
 
-The file's **content** (not its extension) is sniffed and checked
-against a whitelist:
+The file's **content** (not its extension) is sniffed with
+`gabriel-vasile/mimetype`. The accepted set depends on the caller's
+plan.
 
-- **Images** are served as their natural MIME: `jpeg`, `png`, `webp`,
-  `gif`, `svg`, `ico`. SVG is additionally scanned and rejected if it
-  contains `<script>`, event handlers (`on*`), `<foreignObject>`,
-  `<iframe>`, or external/javascript URLs.
+**Paid plans (Pro, Premium)** — any file type is accepted (PDFs,
+archives, video, audio, fonts, office documents, binaries, …). The
+detected MIME is stored and served as-is, with two carve-outs for
+gateway safety:
+
+- **Active web content** — `text/html`, `text/css`, `text/javascript`,
+  `application/javascript` — is force-stored as `text/plain` so the
+  public gateway cannot host phishing pages or serve third-party
+  scripts.
+- **SVG** is scanned and rejected if it contains `<script>`, event
+  handlers (`on*`), `<foreignObject>`, `<iframe>`, or
+  external/javascript URLs (`400 unsafe_svg`).
+
+**Free plan** — a narrower allowlist; anything outside returns
+`400 unsupported_mime`:
+
+- **Images** served as their natural MIME: `jpeg`, `png`, `webp`,
+  `gif`, `svg`, `ico`. SVG goes through the same scan as on paid
+  plans.
 - **Text and source code** — any text-based format is accepted and
   **stored as `text/plain`**. Common examples: `txt`, `md`, `html`,
   `css`, `js`, `xml`, `csv`, `log`, plus most programming source
   files (`py`, `go`, `rs`, `rb`, `java`, `sh`, `sql`, `yaml`, `toml`,
-  `ini`).
-- **JSON** is served as `application/json` (preserved, not
+  `ini`). The same active-content downgrade applies.
+- **JSON** served as `application/json` (preserved, not
   downgraded) so consumers like NFT marketplaces and IPNS readers get
   the Content-Type they expect.
-
-Active web content (HTML / JS / CSS) is intentionally downgraded to
-`text/plain` so the public gateway cannot be used to host phishing
-pages or serve third-party scripts.
 
 ### Request
 
@@ -104,8 +116,9 @@ curl -X POST https://api.pingo.to/v1/pin/file \
 ### Error responses
 
 - `400 file_field_required` — multipart form missing the `file` field
-- `400 unsupported_mime` — sniffed MIME not in the allowed list;
-  response carries `detected` with the actual MIME
+- `400 unsupported_mime` — **Free plan only**: sniffed MIME isn't in
+  the Free allowlist; response carries `detected` with the actual
+  MIME. Paid plans never return this `unsupported_mime` error.
 - `400 unsafe_svg` — SVG contains scripts, event handlers, foreign
   objects, iframes, or external/javascript URLs; `detected` is always
   `image/svg+xml`
