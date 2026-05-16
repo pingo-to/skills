@@ -124,6 +124,10 @@ curl -X POST https://api.pingo.to/v1/pin/file \
   `image/svg+xml`
 - `403 cid_blocked` — the resolved CID has been removed by a Pingo
   moderator (DMCA, abuse) and cannot be pinned by anyone
+- `403 account_suspended` — the account has been suspended by a Pingo
+  moderator. Rare — reserved for serious policy violations (DMCA /
+  copyright complaints, phishing, malware, CSAM, sustained bandwidth
+  abuse).
 - `409 cid_already_pinned` — same content already pinned to this
   account; the canonical CID is echoed in the `cid` field
 - `413 single_file_quota` — file exceeds the per-file cap (Free 10 MB,

@@ -164,6 +164,7 @@ into something useful to say:
 | `single_file_quota` | The file is bigger than the per-file cap (Free 10 MB / Pro 20 MB / Premium 50 MB). The body has `size` and `limit`. |
 | `unsupported_mime` | **Free plan only.** File type isn't in the Free allowlist; the `detected` field shows what was sniffed. Free accepts text/source code (stored as `text/plain`) and common images (jpeg/png/webp/gif/svg/ico). Paid plans (Pro/Premium) accept any file type — mention upgrading if the user wants PDFs, archives, video, etc. |
 | `unsafe_svg` | SVG contains scripts, event handlers, foreign objects, iframes, or external/javascript URLs. Strip those and retry. |
+| `account_suspended` | Rare. The account has been suspended by a Pingo moderator (DMCA, phishing, malware, CSAM, traffic abuse, etc.). New pins are blocked. |
 | `cid_already_pinned` | The CID is already pinned to this user's account. The `cid` field echoes it; offer to look it up, rename, or delete instead. |
 | `rate_limit` | Too many requests. The body's `retry_after` (seconds) tells when it's safe to try again. |
 | `invalid_cid` | The CID couldn't be parsed (must be valid v0 `Qm…` or v1 `bafy…`). |
