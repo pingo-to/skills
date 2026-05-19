@@ -1,6 +1,6 @@
 ---
 name: pingo
-description: Use Pingo (an IPFS pinning service) from a code agent — pin files or text to IPFS, look up pinned CIDs, list or search the user's pins, rename, delete, or check account storage and quota. Trigger this skill whenever the user mentions Pingo, asks to pin or upload anything to IPFS, asks about a CID they previously pinned, asks about their Pingo account / plan / storage usage, or asks about their gateway URL. Also trigger for natural phrasings like "is X pinned", "show my pins", "upload this to IPFS", "what's my Pingo usage" — even when they don't explicitly say the word "Pingo".
+description: Use Pingo (an IPFS pinning service) from a code agent — pin files or text to IPFS, pin a CID that already exists on IPFS (Pro / Premium), look up pinned CIDs, list or search the user's pins, rename, delete, or check account storage and quota. Trigger this skill whenever the user mentions Pingo, asks to pin or upload anything to IPFS, asks to pin an existing CID, asks about a CID they previously pinned, asks about their Pingo account / plan / storage usage, or asks about their gateway URL. Also trigger for natural phrasings like "is X pinned", "show my pins", "upload this to IPFS", "pin this CID", "what's my Pingo usage" — even when they don't explicitly say the word "Pingo".
 ---
 
 # Pingo CLI Skill
@@ -74,6 +74,7 @@ production endpoint.
 | `pin-file <path>` | Upload + pin a local file (multipart). |
 | `pin-text <name> --content "..."` | Pin a string of text. Or `--from-stdin` to pipe content. |
 | `pin-json <name> --content '{...}'` | Pin a JSON document, stored with `Content-Type: application/json`. Or `--from-stdin`. |
+| `pin-cid <cid> --name "..."` | Pin a CID that already exists on IPFS (Pro / Premium plans). Returns immediately with `status: queued`; poll `get-pin <cid>` until status reaches `pinned` or `failed`. |
 | `get-pin <cid>` | Look up one pin by CID. Returns `{pinned:false, cid}` (not an error) on 404. |
 | `list-pins [--q <query>] [--page N] [--size N]` | List or search the user's pins. |
 | `rename-pin <cid> <new-name>` | Rename a pin's display name. |
@@ -117,6 +118,26 @@ cat metadata.json | python3 <skill-dir>/scripts/pingo.py pin-json metadata.json 
 Use this (not `pin-text`) when the consumer expects a JSON Content-Type
 — NFT marketplaces, IPNS records, structured feeds. The script
 validates the JSON locally before sending.
+
+### "Pin this CID that's already on IPFS: bafy..." (Pro / Premium only)
+```sh
+python3 <skill-dir>/scripts/pingo.py pin-cid bafy... --name "remote file"
+```
+Returns immediately with `status: "queued"`. The pin runs in the
+background. Poll with `get-pin` until status reaches `pinned` or
+`failed`:
+```sh
+python3 <skill-dir>/scripts/pingo.py get-pin bafy...
+```
+A typical run goes `queued` → `pinning` → `pinned` in seconds to
+a couple of minutes (depends on how quickly the content can be
+located on the IPFS network). On `pinned`, the response includes
+`gateway_url`. On `failed`, the response includes a `failure_reason`
+string — see "Interpreting errors" below for the codes.
+
+If the user is on the Free plan, this call returns
+`403 plan_not_eligible`. Tell them pin-by-CID requires Pro or
+Premium and point them at https://pingo.to/account/plan.
 
 ### "Did I pin this CID? bafy..."
 ```sh
@@ -166,11 +187,35 @@ into something useful to say:
 | `unsafe_svg` | SVG contains scripts, event handlers, foreign objects, iframes, or external/javascript URLs. Strip those and retry. |
 | `account_suspended` | Rare. The account has been suspended by a Pingo moderator (DMCA, phishing, malware, CSAM, traffic abuse, etc.). New pins are blocked. |
 | `cid_already_pinned` | The CID is already pinned to this user's account. The `cid` field echoes it; offer to look it up, rename, or delete instead. |
+| `plan_not_eligible` | Pin-by-CID requires a Pro or Premium plan. Suggest upgrading at https://pingo.to/account/plan. |
+| `pin_cid_queue_full` | Too many pin-by-CID requests already in flight on this account. Suggest waiting for the existing ones to finish and retrying. |
 | `rate_limit` | Too many requests. The body's `retry_after` (seconds) tells when it's safe to try again. |
 | `invalid_cid` | The CID couldn't be parsed (must be valid v0 `Qm…` or v1 `bafy…`). |
 | `name_required` / `name_too_long` | Ask for a non-empty name ≤ 100 chars. |
 | `content_required` | `pin-json` was called without a JSON body. Pass `--content '{...}'` or pipe via `--from-stdin`. |
 | `invalid_body` | The request body wasn't parseable JSON. For `pin-json` the script catches this client-side, so this only surfaces if the user routed around it; show the raw error. |
+
+## Pin-by-CID: interpreting `failure_reason`
+
+When `get-pin` returns a row with `status: "failed"` (always a
+pin-by-CID row — synchronous uploads never reach this state), the
+response carries a `failure_reason` string. Branch on the code:
+
+| `failure_reason` | What to tell the user |
+|---|---|
+| `cid_blocked` | This CID is on Pingo's moderation blocklist and cannot be pinned by anyone. |
+| `cid_unreachable` | Pingo couldn't locate this CID on the IPFS network. Confirm the CID is correct and that at least one provider has it online, then retry. |
+| `cid_is_directory` | Pin-by-CID supports files only, not directories. |
+| `single_file_quota` | Content exceeds the per-file cap (Pro 20 MB / Premium 50 MB). |
+| `storage_quota` | Pinning the content would push usage past the storage cap. Suggest deleting unused pins or upgrading. |
+| `fetch_timeout` | Timed out while fetching the content from IPFS. Suggest retrying later. |
+| `pin_failed` | IPFS rejected the pin. Suggest retrying later. |
+| `unsafe_svg` | SVG carries scripts, event handlers, or external / javascript URLs. Strip them and re-pin. |
+
+To retry a failed pin, just call `pin-cid` again with the same CID
+— the previous failed row is replaced automatically. If the user
+wants to clear a failed row without retrying (e.g. they gave up on
+that CID), `delete-pin <cid>` removes it.
 
 ## Notes for the agent
 

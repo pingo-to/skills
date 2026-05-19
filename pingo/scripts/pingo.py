@@ -173,16 +173,30 @@ def fail(status: int, body):
 
 
 def emit_pin(status, body, human: bool):
-    if status not in (200, 201):
+    # 200 = synchronous pin (file/text/json). 201 covers any future
+    # endpoint that adopts Created semantics. 202 = pin-by-CID
+    # accepted and queued; the body is a partial row with
+    # status="queued".
+    if status not in (200, 201, 202):
         fail(status, body)
     if human:
-        print(f"Pinned: {body.get('cid')}")
+        st = body.get("status")
+        if st in ("queued", "pinning"):
+            print(f"Queued: {body.get('cid')}")
+            print(f"Status: {st} (poll with `get-pin <cid>` to follow progress)")
+        elif st == "failed":
+            print(f"Failed: {body.get('cid')}")
+            reason = body.get("failure_reason")
+            if reason:
+                print(f"Reason: {reason}")
+        else:
+            print(f"Pinned: {body.get('cid')}")
         if body.get("gateway_url"):
             print(f"URL:    {body['gateway_url']}")
         if body.get("name"):
             print(f"Name:   {body['name']}")
         sz = body.get("size_bytes")
-        if sz is not None:
+        if sz:
             print(f"Size:   {human_bytes(sz)}")
         if body.get("mime_type"):
             print(f"MIME:   {body['mime_type']}")
@@ -233,6 +247,18 @@ def cmd_pin_json(args):
     payload = json.dumps({"name": args.name, "content": parsed}).encode("utf-8")
     status, resp = call(
         "POST", "/pin/json", data=payload, content_type="application/json"
+    )
+    emit_pin(status, resp, args.human)
+
+
+def cmd_pin_by_cid(args):
+    # Pin-by-CID is asynchronous: the API returns 202 with the row at
+    # status="queued" and a worker fetches the content in the
+    # background. Callers should poll `get-pin <cid>` until status
+    # reaches "pinned" or "failed".
+    payload = json.dumps({"name": args.name, "cid": args.cid}).encode("utf-8")
+    status, resp = call(
+        "POST", "/pin/cid", data=payload, content_type="application/json"
     )
     emit_pin(status, resp, args.human)
 
@@ -381,6 +407,22 @@ def main():
         help="Read JSON text from stdin instead of --content.",
     )
     sp.set_defaults(func=cmd_pin_json)
+
+    sp = sub.add_parser(
+        "pin-cid",
+        help=(
+            "Pin a CID that already exists on IPFS (Pro / Premium plans). "
+            "Returns immediately with status=queued; poll get-pin <cid> "
+            "until status reaches pinned or failed."
+        ),
+    )
+    sp.add_argument("cid", help="CID to pin (v0 or v1; v0 is normalised to v1).")
+    sp.add_argument(
+        "--name",
+        required=True,
+        help="Display name for the pin (max 100 chars).",
+    )
+    sp.set_defaults(func=cmd_pin_by_cid)
 
     sp = sub.add_parser(
         "get-pin",

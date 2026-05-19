@@ -37,6 +37,7 @@ on suspected compromise.
 | `POST` | `/v1/pin/file` | Upload and pin a file (multipart) |
 | `POST` | `/v1/pin/json` | Pin a JSON document (stored as `application/json`) |
 | `POST` | `/v1/pin/text` | Pin raw text (stored as `text/plain`) |
+| `POST` | `/v1/pin/cid` | Pin a CID already on IPFS (asynchronous; Pro / Premium plans) |
 | `GET` | `/v1/pin/cid/:cid` | Look up one pin by CID |
 | `PUT` | `/v1/pin/cid/:cid/name` | Rename a pin (display name only) |
 | `DELETE` | `/v1/pin/cid/:cid` | Delete a pin (storage refunded immediately) |
@@ -253,6 +254,108 @@ curl -X POST https://api.pingo.to/v1/pin/text \
 
 ---
 
+## POST /v1/pin/cid
+
+**Pro / Premium plans only.**
+
+Pin a CID that already exists on the IPFS network — no upload
+needed. This endpoint is **asynchronous**: the response is `202`
+with the row at `status: "queued"`, and the pin runs in the
+background. Poll `GET /v1/pin/cid/:cid` to watch the status
+transition `queued` → `pinning` → `pinned` | `failed`.
+
+Both v0 (`Qm…`) and v1 (`bafy…`) CIDs are accepted. Directories
+are not supported (use `pin-file` to upload a directory's
+contents).
+
+The same content-type rules as `/v1/pin/file` apply once the
+content is fetched: HTML / CSS / JS are served as `text/plain`,
+and SVG is scanned and rejected if it carries active content.
+
+### Request body
+
+```json
+{
+  "name": "display name (required, max 100 chars)",
+  "cid":  "CID to pin (v0 or v1)"
+}
+```
+
+### Request
+
+```sh
+curl -X POST https://api.pingo.to/v1/pin/cid \
+  -H "Authorization: Bearer pingo_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "remote file",
+    "cid":  "bafybeibwzifw52ttrkqlikfzext5akxu7lz4xiwjgwzmqcpdzmp3n5vnbe"
+  }'
+```
+
+### Response (202)
+
+```json
+{
+  "cid":        "bafy...",
+  "name":       "remote file",
+  "size_bytes": 0,
+  "status":     "queued",
+  "via":        "pin-cid",
+  "created_at": "2026-05-18T..."
+}
+```
+
+`size_bytes` is filled in once the pin succeeds.
+`gateway_url` is returned by `GET /v1/pin/cid/:cid` once status
+reaches `pinned`. Failed rows carry a `failure_reason` string —
+see [Pin-by-CID failure reasons](#pin-by-cid-failure-reasons) below.
+
+### Error responses
+
+These come back synchronously on the `POST` itself. Failures that
+happen later (during the asynchronous fetch) appear as
+`status: "failed"` on `GET /v1/pin/cid/:cid` with a
+`failure_reason` field — they are not synchronous errors.
+
+- `400 invalid_body` — body could not be parsed
+- `400 name_required` / `400 name_too_long`
+- `400 invalid_cid` — `cid` is not a valid CID
+- `403 plan_not_eligible` — pin-by-CID requires Pro or Premium;
+  the response carries the caller's current `plan`
+- `403 account_suspended` — see `/v1/pin/file`
+- `403 cid_blocked` — the CID has been removed by a Pingo
+  moderator (DMCA, abuse) and cannot be pinned by anyone
+- `409 cid_already_pinned` — same CID already pinned to this
+  account; the canonical CID is echoed in the `cid` field
+- `429 pin_cid_queue_full` — too many pin-by-CID requests
+  already in flight on this account; wait for some to complete
+  and retry
+- `429 rate_limit` — too many requests; body has `retry_after`
+  (seconds)
+
+### Pin-by-CID failure reasons
+
+When `GET /v1/pin/cid/:cid` returns a row with `status: "failed"`,
+the response includes a `failure_reason` string. Branch on the
+code:
+
+| `failure_reason` | Cause |
+|---|---|
+| `cid_blocked` | The CID is on Pingo's moderation blocklist. |
+| `cid_unreachable` | Could not find the CID on the IPFS network. |
+| `cid_is_directory` | CID resolves to a directory; files only. |
+| `single_file_quota` | Content exceeds the per-file cap (Pro 20 MB / Premium 50 MB). |
+| `storage_quota` | Pinning would push usage past the storage cap. |
+| `fetch_timeout` | Timed out while fetching from IPFS. |
+| `pin_failed` | IPFS rejected the pin. |
+| `unsafe_svg` | SVG carries scripts, event handlers, or external / javascript URLs. |
+
+To retry, submit the same CID to `POST /v1/pin/cid` again — the
+previous failed row is replaced automatically.
+
+---
+
 ## GET /v1/pin/cid/:cid
 
 Look up a single pin by CID. Both v0 (`Qm…`) and v1 (`bafy…`) forms
@@ -273,18 +376,27 @@ curl -H "Authorization: Bearer pingo_..." \
   "name":        "my-readme",
   "size_bytes":  12345,
   "mime_type":   "text/plain",
+  "status":      "pinned",
   "via":         "pin-file",
   "gateway_url": "https://<slug>.<gateway>/ipfs/bafybei...",
   "created_at":  "2026-04-26T..."
 }
 ```
 
-Conditional fields:
+Fields:
 
+- `status` — one of `pinned`, `queued`, `pinning`, `failed`. Rows
+  created via `POST /v1/pin/file|json|text` are always `pinned`.
+  Rows created via `POST /v1/pin/cid` start at `queued`, advance
+  through `pinning`, then settle on `pinned` or `failed`.
 - `mime_type` — content-sniffed MIME for the stored file
   (e.g. `image/png`, `image/svg+xml`); `"text/plain"` for content
   created via `POST /v1/pin/text`. Omitted on pre-existing rows
-  created before this field was added.
+  created before this field was added, and on rows that haven't
+  reached `pinned` yet.
+- `gateway_url` — only present when `status` is `pinned`.
+- `failure_reason` — only present when `status` is `failed`. See
+  [Pin-by-CID failure reasons](#pin-by-cid-failure-reasons).
 
 ### Error responses
 

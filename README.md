@@ -66,7 +66,10 @@ Once installed, ask Claude things like:
 
 - **Pin** — "pin this file ./hello.txt", "upload my logo.png to IPFS",
   "pin this JSON as metadata.json"
-- **Look up** — "did I pin bafy…?", "is this CID on my account?"
+- **Pin by CID** *(Pro / Premium)* — "pin this CID already on IPFS network:
+  bafy…", "add bafy… to my account"
+- **Look up** — "did I pin bafy…?", "is this CID on my account?",
+  "check status of bafy…"
 - **List & search** — "show my pins", "find pins with 'logo' in the name"
 - **Manage** — "rename bafy… to my-logo.png", "unpin bafy…"
 - **Account** — "what's my Pingo usage", "how much storage do I have left",
@@ -93,6 +96,7 @@ A few more examples:
 
 ```
 > /pingo pin this JSON as metadata.json: {"name":"NFT #1","author":"Bob"}
+> /pingo pin this CID already on IPFS network: bafybeicd…
 > /pingo did I pin bafybeicd…?
 > /pingo show me my pins
 > /pingo find pins with "logo" in the name
@@ -111,6 +115,7 @@ invoke it directly if you want shell-level access:
 | `pin-file <path>` | Upload + pin a local file (multipart). |
 | `pin-text <name> --content "..."` | Pin a string of text. Use `--from-stdin` to pipe content. |
 | `pin-json <name> --content '{...}'` | Pin a JSON document with `Content-Type: application/json`. |
+| `pin-cid <cid> --name "..."` | Pin a CID that already exists on IPFS (Pro / Premium plans). Returns immediately with `status: queued`; poll with `get-pin <cid>`. |
 | `get-pin <cid>` | Look up one pin by CID. Returns `{pinned:false}` (not an error) on 404. |
 | `list-pins [--q <query>] [--page N] [--size N]` | List or search your pins. |
 | `rename-pin <cid> <new-name>` | Rename a pin's display name. |
